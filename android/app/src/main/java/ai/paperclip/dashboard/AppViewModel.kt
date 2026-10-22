@@ -18,10 +18,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import androidx.lifecycle.SavedStateHandle
+import kotlinx.serialization.json.jsonObject
+
+private const val INSPECTED_KEY = "inspected"
 
 enum class Phase { Checking, SignedOut, Ready }
 
-class AppViewModel(app: Application) : AndroidViewModel(app) {
+class AppViewModel(app: Application, private val saved: SavedStateHandle) : AndroidViewModel(app) {
     val store = SessionStore(app)
     val api = PaperclipApi(store)
 
@@ -43,8 +47,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var projects by mutableStateOf<List<Project>>(emptyList())
         private set
-    /** Item handed from a generic list screen to its detail screen. */
-    var inspected by mutableStateOf<JsonObject?>(null)
+    /**
+     * Item handed from a generic list screen to its detail screen. Kept in
+     * [SavedStateHandle] so the detail screen survives process death.
+     */
+    var inspected: JsonObject?
+        get() = inspectedState
+        set(value) {
+            inspectedState = value
+            saved[INSPECTED_KEY] = value?.toString()
+        }
+    private var inspectedState by mutableStateOf(
+        saved.get<String>(INSPECTED_KEY)?.let { runCatching { api.json.parseToJsonElement(it).jsonObject }.getOrNull() },
+    )
     /** Pairing waiting for the user to confirm the server, as (url, key). */
     var pendingPairing by mutableStateOf<Pair<String, String>?>(null)
         private set
