@@ -259,7 +259,29 @@ function buildInviteListQuery(options: {
   return query ? `?${query}` : "";
 }
 
+export type BoardApiKey = {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  expiresAt: string | null;
+};
+
+export type BoardApiKeyCreated = BoardApiKey & {
+  token: string;
+  publicBaseUrl: string;
+  tailscaleBaseUrl: string | null;
+};
+
 export const accessApi = {
+  listBoardApiKeys: () => api.get<BoardApiKey[]>("/board-api-keys"),
+
+  createBoardApiKey: (input: { name: string; expiresAt?: string | null }) =>
+    api.post<BoardApiKeyCreated>("/board-api-keys", input),
+
+  revokeBoardApiKey: (keyId: string) => api.delete<{ ok: true; keyId: string }>(`/board-api-keys/${keyId}`),
+
   createCompanyInvite: (
     companyId: string,
     input: {
