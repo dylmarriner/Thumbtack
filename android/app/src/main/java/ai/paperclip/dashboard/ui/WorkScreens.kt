@@ -1,5 +1,9 @@
 package ai.paperclip.dashboard.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.TextButton
 import ai.paperclip.dashboard.data.Agent
 import ai.paperclip.dashboard.data.Decision
 import ai.paperclip.dashboard.data.Goal
@@ -133,11 +137,16 @@ fun SearchScreen(api: PaperclipApi, companyId: String, onOpen: (SearchResult) ->
 // --- Projects ---
 
 @Composable
-fun ProjectsScreen(api: PaperclipApi, companyId: String, agentsById: Map<String, Agent>, onOpen: (String) -> Unit) {
+fun ProjectsScreen(api: PaperclipApi, companyId: String, agentsById: Map<String, Agent>, onOpen: (String) -> Unit, onNew: () -> Unit) {
     val state = rememberLoad(companyId) { api.projects(companyId) }
+    var showArchived by rememberSaveable { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize()) {
     LoadedContent(state) { projects ->
-        val visible = projects.filter { it.archivedAt == null }
-        LazyColumn(Modifier.fillMaxSize()) {
+        val visible = projects.filter { showArchived || it.archivedAt == null }
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
+            if (projects.any { it.archivedAt != null }) item {
+                StatusChips(listOf(null, "archived"), if (showArchived) "archived" else null) { showArchived = it != null }
+            }
             if (visible.isEmpty()) item { EmptyState("No projects") }
             items(visible, key = { it.id }) { p ->
                 ListRow(
@@ -152,6 +161,13 @@ fun ProjectsScreen(api: PaperclipApi, companyId: String, agentsById: Map<String,
             }
         }
     }
+        ExtendedFloatingActionButton(
+            onClick = onNew,
+            icon = { Icon(Icons.Default.Add, null) },
+            text = { Text("New project") },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        )
+    }
 }
 
 /** Project header plus the project's task list. */
@@ -163,6 +179,7 @@ fun ProjectDetailScreen(
     agentsById: Map<String, Agent>,
     onOpenIssue: (String) -> Unit,
     onNewIssue: () -> Unit,
+    onEdit: () -> Unit,
 ) {
     val state = rememberLoad(projectId) { api.project(projectId, companyId) }
     Column(Modifier.fillMaxSize()) {
@@ -171,6 +188,7 @@ fun ProjectDetailScreen(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(p.name, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                     if (p.status.isNotBlank()) StatusPill(p.status)
+                    TextButton(onClick = onEdit) { Text("Edit") }
                 }
                 p.description?.takeIf { it.isNotBlank() }?.let {
                     Text(it, style = MaterialTheme.typography.bodyMedium, maxLines = 4, overflow = TextOverflow.Ellipsis)
@@ -188,8 +206,9 @@ fun ProjectDetailScreen(
 val GOAL_STATUSES = listOf("planned", "active", "achieved", "cancelled")
 
 @Composable
-fun GoalsScreen(api: PaperclipApi, companyId: String, onOpen: (String) -> Unit) {
+fun GoalsScreen(api: PaperclipApi, companyId: String, onOpen: (String) -> Unit, onNew: () -> Unit) {
     val state = rememberLoad(companyId) { api.goals(companyId) }
+    Box(Modifier.fillMaxSize()) {
     LoadedContent(state) { goals ->
         // Flatten the parent/child tree depth-first so sub-goals sit under their parent.
         val byParent = goals.groupBy { it.parentId?.takeIf { p -> goals.any { g -> g.id == p } } }
@@ -201,17 +220,24 @@ fun GoalsScreen(api: PaperclipApi, companyId: String, onOpen: (String) -> Unit) 
             }
         }
         walk(null, 0)
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
             if (rows.isEmpty()) item { EmptyState("No goals") }
             items(rows, key = { it.first.id }) { (g, depth) ->
                 ListRow(g.title, humanize(g.level.ifBlank { "goal" }), g.status, indent = depth.coerceAtMost(4)) { onOpen(g.id) }
             }
         }
     }
+        ExtendedFloatingActionButton(
+            onClick = onNew,
+            icon = { Icon(Icons.Default.Add, null) },
+            text = { Text("New goal") },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        )
+    }
 }
 
 @Composable
-fun GoalDetailScreen(api: PaperclipApi, goalId: String, agentsById: Map<String, Agent>) {
+fun GoalDetailScreen(api: PaperclipApi, goalId: String, agentsById: Map<String, Agent>, onEdit: () -> Unit, onAddSubGoal: () -> Unit) {
     val state = rememberLoad(goalId) { api.goal(goalId) }
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
@@ -220,6 +246,10 @@ fun GoalDetailScreen(api: PaperclipApi, goalId: String, agentsById: Map<String, 
         LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Text(g.title, style = MaterialTheme.typography.headlineSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onEdit) { Text("Edit") }
+                    OutlinedButton(onClick = onAddSubGoal) { Text("Add sub-goal") }
+                }
                 Detail("Level", humanize(g.level))
                 Detail("Owner", g.ownerAgentId?.let { agentsById[it]?.name } ?: "—")
                 Detail("Updated", relativeTime(g.updatedAt))
@@ -245,11 +275,16 @@ fun GoalDetailScreen(api: PaperclipApi, goalId: String, agentsById: Map<String, 
 // --- Routines ---
 
 @Composable
-fun RoutinesScreen(api: PaperclipApi, companyId: String, agentsById: Map<String, Agent>, onOpen: (String) -> Unit) {
+fun RoutinesScreen(api: PaperclipApi, companyId: String, agentsById: Map<String, Agent>, onOpen: (String) -> Unit, onNew: () -> Unit) {
     val state = rememberLoad(companyId) { api.routines(companyId) }
+    var showArchived by rememberSaveable { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize()) {
     LoadedContent(state) { routines ->
-        val visible = routines.filter { it.status != "archived" }
-        LazyColumn(Modifier.fillMaxSize()) {
+        val visible = routines.filter { showArchived || it.status != "archived" }
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
+            if (routines.any { it.status == "archived" }) item {
+                StatusChips(listOf(null, "archived"), if (showArchived) "archived" else null) { showArchived = it != null }
+            }
             if (visible.isEmpty()) item { EmptyState("No routines") }
             items(visible, key = { it.id }) { r ->
                 val next = r.triggers.filter { it.enabled }.mapNotNull { it.nextRunAt }.minOrNull()
@@ -266,11 +301,23 @@ fun RoutinesScreen(api: PaperclipApi, companyId: String, agentsById: Map<String,
             }
         }
     }
+        ExtendedFloatingActionButton(
+            onClick = onNew,
+            icon = { Icon(Icons.Default.Add, null) },
+            text = { Text("New routine") },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        )
+    }
 }
 
 @Composable
-fun RoutineDetailScreen(api: PaperclipApi, routineId: String, agentsById: Map<String, Agent>) {
-    val state = rememberLoad(routineId) { api.routine(routineId) to runCatching { api.routineRuns(routineId) }.getOrDefault(emptyList()) }
+fun RoutineDetailScreen(api: PaperclipApi, routineId: String, agentsById: Map<String, Agent>, onEdit: () -> Unit, onOpenIssue: (String) -> Unit) {
+    val state = rememberLoad(routineId) {
+        Triple(api.routine(routineId), runCatching { api.routineRuns(routineId) }.getOrDefault(emptyList()),
+            (api.getJson("/routines/$routineId") as kotlinx.serialization.json.JsonObject).arr("triggers"))
+    }
+    var addingTrigger by remember { mutableStateOf(false) }
+    var createdSecret by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -282,7 +329,12 @@ fun RoutineDetailScreen(api: PaperclipApi, routineId: String, agentsById: Map<St
             state.reload()
         }
     }
-    LoadedContent(state) { (r, runs) ->
+    if (addingTrigger) AddTriggerDialog(api, routineId, onDismiss = { addingTrigger = false }) { res ->
+        addingTrigger = false
+        createdSecret = res?.obj("secretMaterial")?.let { m -> "Webhook URL: ${m.str("webhookUrl")}\nSecret (shown once): ${m.str("webhookSecret")}" }
+        state.reload()
+    }
+    LoadedContent(state) { (r, runs, triggers) ->
         LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -292,10 +344,10 @@ fun RoutineDetailScreen(api: PaperclipApi, routineId: String, agentsById: Map<St
                 Detail("Assignee", r.assigneeAgentId?.let { agentsById[it]?.name } ?: "—")
                 Detail("Updated", relativeTime(r.updatedAt))
             }
-            r.description?.takeIf { it.isNotBlank() }?.let { item { OutlinedCard { Text(it, Modifier.padding(16.dp)) } } }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(enabled = !busy, onClick = { act("Run started") { api.runRoutine(r.id) } }) { Text("Run now") }
+                    OutlinedButton(onClick = onEdit) { Text("Edit") }
                     if (r.status == "paused") {
                         OutlinedButton(enabled = !busy, onClick = { act("Resumed") { api.setRoutineStatus(r.id, "active") } }) { Text("Resume") }
                     } else {
@@ -304,22 +356,29 @@ fun RoutineDetailScreen(api: PaperclipApi, routineId: String, agentsById: Map<St
                 }
                 message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
-            if (r.triggers.isNotEmpty()) {
-                item { Text("Triggers", style = MaterialTheme.typography.titleMedium) }
-                items(r.triggers, key = { it.id }) { t ->
-                    OutlinedCard(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text(t.label ?: humanize(t.kind), fontWeight = FontWeight.Medium)
-                            Text(
-                                listOfNotNull(
-                                    t.cronExpression,
-                                    if (t.enabled) null else "disabled",
-                                    t.nextRunAt?.let { "next " + it.take(16).replace('T', ' ') },
-                                    t.lastFiredAt?.let { "fired " + relativeTime(it) },
-                                ).joinToString(" · "),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Triggers", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { addingTrigger = true }) { Text("Add trigger") }
+                }
+                createdSecret?.let {
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+            if (triggers.isEmpty()) item { Text("No triggers. The routine only runs when you start it.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            items(triggers, key = { "trigger:" + (it.str("id") ?: it.toString()) }) { t -> TriggerCard(api, t) { state.reload() } }
+            r.description?.takeIf { it.isNotBlank() }?.let { d ->
+                item {
+                    var expanded by rememberSaveable { mutableStateOf(false) }
+                    Text("Instructions", style = MaterialTheme.typography.titleMedium)
+                    OutlinedCard(Modifier.fillMaxWidth().clickable { expanded = !expanded }) {
+                        Column(Modifier.padding(16.dp)) {
+                            if (expanded) Markdown(d)
+                            else Text(d, maxLines = 6, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+                            Text(if (expanded) "Show less" else "Show more", color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
                         }
                     }
                 }
@@ -327,8 +386,17 @@ fun RoutineDetailScreen(api: PaperclipApi, routineId: String, agentsById: Map<St
             item { Text("Recent runs", style = MaterialTheme.typography.titleMedium) }
             if (runs.isEmpty()) item { Text("No runs yet", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(runs, key = { it.id }) { run ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(relativeTime(run.triggeredAt ?: run.createdAt), Modifier.weight(1f))
+                Row(
+                    Modifier.fillMaxWidth().clickable(enabled = run.linkedIssue != null) { run.linkedIssue?.id?.let(onOpenIssue) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(relativeTime(run.triggeredAt ?: run.createdAt))
+                        run.linkedIssue?.let { i ->
+                            Text(listOfNotNull(i.identifier, i.title).joinToString(" "), style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                     StatusPill(run.status)
                 }
             }

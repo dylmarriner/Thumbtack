@@ -54,7 +54,11 @@ data class RoutineRunSummary(
     val status: String = "",
     val createdAt: String? = null,
     val triggeredAt: String? = null,
+    val linkedIssue: RoutineIssueRef? = null,
 )
+
+@Serializable
+data class RoutineIssueRef(val id: String, val identifier: String? = null, val title: String = "", val status: String = "")
 
 @Serializable
 data class Routine(

@@ -22,6 +22,9 @@ import ai.paperclip.dashboard.ui.IssueDetailScreen
 import ai.paperclip.dashboard.ui.IssuesScreen
 import ai.paperclip.dashboard.ui.JsonDetailScreen
 import ai.paperclip.dashboard.ui.JsonListScreen
+import ai.paperclip.dashboard.ui.ProjectEditScreen
+import ai.paperclip.dashboard.ui.GoalEditScreen
+import ai.paperclip.dashboard.ui.RoutineEditScreen
 import ai.paperclip.dashboard.ui.SkillsScreen
 import ai.paperclip.dashboard.ui.SkillDetailScreen
 import ai.paperclip.dashboard.ui.CatalogSkillScreen
@@ -247,6 +250,9 @@ private fun detailTitle(route: String?): String = when (baseRoute(route)) {
     "inspect" -> "Details"
     "run" -> "Run"
     "doc" -> "Document"
+    "project-edit" -> "Project"
+    "goal-edit" -> "Goal"
+    "routine-edit" -> "Routine"
     "skill", "catalog" -> "Skill"
     "plugin" -> "Plugin"
     else -> "Paperclip"
@@ -519,10 +525,10 @@ private fun AppNavHost(nav: NavHostController, vm: AppViewModel, companyId: Stri
         ) { e ->
             IssuesScreen(api, companyId, e.arguments?.getString("status"), agents, openIssue, newIssue)
         }
-        composable(PROJECTS.route) { ProjectsScreen(api, companyId, agents) { nav.navigate("project/$it") } }
-        composable(ROUTINES.route) { RoutinesScreen(api, companyId, agents) { nav.navigate("routine/$it") } }
+        composable(PROJECTS.route) { ProjectsScreen(api, companyId, agents, { nav.navigate("project/$it") }) { nav.navigate("project-edit/new") } }
+        composable(ROUTINES.route) { RoutinesScreen(api, companyId, agents, { nav.navigate("routine/$it") }) { nav.navigate("routine-edit/new") } }
         composable(ARTIFACTS.route) { JsonListScreen(api, "/companies/$companyId/artifacts", "No artifacts", inspect) }
-        composable(GOALS.route) { GoalsScreen(api, companyId) { nav.navigate("goal/$it") } }
+        composable(GOALS.route) { GoalsScreen(api, companyId, { nav.navigate("goal/$it") }) { nav.navigate("goal-edit/new") } }
         composable(WORKSPACES.route) { JsonListScreen(api, "/companies/$companyId/execution-workspaces", "No workspaces", inspect) }
         composable(AGENTS.route) { AgentsScreen(api, companyId, openAgent) }
         composable(ORG.route) { OrgChartScreen(api, companyId, openAgent) }
@@ -564,9 +570,40 @@ private fun AppNavHost(nav: NavHostController, vm: AppViewModel, companyId: Stri
         composable("run/{id}") { e -> RunDetailScreen(api, companyId, e.arguments!!.getString("id")!!, agents, openIssue) }
         composable("agent/{id}") { e -> AgentDetailScreen(api, companyId, e.arguments!!.getString("id")!!, agents, vm::refreshAgents, onOpenRun = openRun, onOpenChat = openIssue) }
         composable("approval/{id}") { e -> ApprovalDetailScreen(api, e.arguments!!.getString("id")!!, agents, openIssue) }
-        composable("project/{id}") { e -> ProjectDetailScreen(api, companyId, e.arguments!!.getString("id")!!, agents, openIssue, newIssue) }
-        composable("goal/{id}") { e -> GoalDetailScreen(api, e.arguments!!.getString("id")!!, agents) }
-        composable("routine/{id}") { e -> RoutineDetailScreen(api, e.arguments!!.getString("id")!!, agents) }
+        composable("project/{id}") { e ->
+            val id = e.arguments!!.getString("id")!!
+            ProjectDetailScreen(api, companyId, id, agents, openIssue, newIssue) { nav.navigate("project-edit/$id") }
+        }
+        composable("project-edit/{id}") { e ->
+            val id = e.arguments!!.getString("id")!!.takeIf { it != "new" }
+            ProjectEditScreen(api, companyId, id, agents, onSaved = { saved ->
+                nav.popBackStack()
+                if (id == null) nav.navigate("project/$saved")
+                vm.refreshSidebar()
+            }, onDeleted = { nav.popBackStack(PROJECTS.route, inclusive = false); vm.refreshSidebar() })
+        }
+        composable("goal/{id}") { e ->
+            val id = e.arguments!!.getString("id")!!
+            GoalDetailScreen(api, id, agents, onEdit = { nav.navigate("goal-edit/$id") }, onAddSubGoal = { nav.navigate("goal-edit/new?parent=$id") })
+        }
+        composable("goal-edit/{id}?parent={parent}") { e ->
+            val id = e.arguments!!.getString("id")!!.takeIf { it != "new" }
+            GoalEditScreen(api, companyId, id, e.arguments?.getString("parent"), agents, onSaved = { saved ->
+                nav.popBackStack()
+                if (id == null) nav.navigate("goal/$saved")
+            }, onDeleted = { nav.popBackStack(GOALS.route, inclusive = false) })
+        }
+        composable("routine/{id}") { e ->
+            val id = e.arguments!!.getString("id")!!
+            RoutineDetailScreen(api, id, agents, onEdit = { nav.navigate("routine-edit/$id") }, onOpenIssue = openIssue)
+        }
+        composable("routine-edit/{id}") { e ->
+            val id = e.arguments!!.getString("id")!!.takeIf { it != "new" }
+            RoutineEditScreen(api, companyId, id, agents) { saved ->
+                nav.popBackStack()
+                if (id == null) nav.navigate("routine/$saved")
+            }
+        }
         composable("decision/{id}") { e -> DecisionDetailScreen(api, companyId, e.arguments!!.getString("id")!!, agents, openIssue) }
         composable("inspect") { JsonDetailScreen(vm.inspected) }
     }
