@@ -24,6 +24,11 @@ data class SignedInUser(val name: String?, val email: String?)
 
 /** Thin client for the Paperclip REST API (`/api`), matching the clients in ui/src/api. */
 class PaperclipApi(private val store: SessionStore) {
+    companion object {
+        /** Issues per page; a full page means "Load more" may find more. */
+        const val ISSUE_PAGE = 100
+    }
+
     val json = Json {
         ignoreUnknownKeys = true
         coerceInputValues = true
@@ -135,9 +140,10 @@ class PaperclipApi(private val store: SessionStore) {
     // --- Issues ---
 
     /** [filter] is extra query string, e.g. `projectId=…` or `touchedByUserId=me` for the inbox. */
-    suspend fun issues(companyId: String, status: String?, query: String?, filter: String? = null): List<Issue> {
+    suspend fun issues(companyId: String, status: String?, query: String?, filter: String? = null, offset: Int = 0): List<Issue> {
         val qs = buildList {
-            add("limit=100")
+            add("limit=$ISSUE_PAGE")
+            if (offset > 0) add("offset=$offset")
             status?.let { add("status=${enc(it)}") }
             query?.takeIf { it.isNotBlank() }?.let { add("q=${enc(it)}") }
             filter?.let { add(it) }
@@ -147,7 +153,9 @@ class PaperclipApi(private val store: SessionStore) {
 
     suspend fun issue(id: String): Issue = get("/issues/$id")
 
-    suspend fun issueComments(id: String): List<IssueComment> = get("/issues/$id/comments?order=asc&limit=200")
+    /** Newest 200 comments, oldest first. Fetching desc keeps a long thread from hiding its latest replies. */
+    suspend fun issueComments(id: String): List<IssueComment> =
+        get<List<IssueComment>>("/issues/$id/comments?order=desc&limit=200").asReversed()
 
     suspend fun addIssueComment(id: String, body: String): IssueComment =
         post("/issues/$id/comments", buildJsonObject {

@@ -72,6 +72,21 @@ fun IssuesScreen(
         debounced = query
     }
     val state = rememberLoad(companyId, status, debounced, filter) { api.issues(companyId, status, debounced, filter) }
+    // Later pages, appended by "Load more"; reset whenever the first page reloads.
+    var more by remember(state.data) { mutableStateOf(emptyList<Issue>()) }
+    var hasMore by remember(state.data) { mutableStateOf(state.data?.size == PaperclipApi.ISSUE_PAGE) }
+    var loadingMore by remember(state.data) { mutableStateOf(false) }
+    var moreError by remember(state.data) { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    fun loadMore(loaded: Int) {
+        loadingMore = true
+        scope.launch {
+            runCatching { api.issues(companyId, status, debounced, filter, offset = loaded) }
+                .onSuccess { page -> more = more + page; hasMore = page.size == PaperclipApi.ISSUE_PAGE; moreError = null }
+                .onFailure { moreError = it.message }
+            loadingMore = false
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         Column {
@@ -92,7 +107,9 @@ fun IssuesScreen(
                     FilterChip(selected = status == s, onClick = { status = s }, label = { Text(humanize(s)) })
                 }
             }
-            LoadedContent(state) { issues ->
+            LoadedContent(state) { firstPage ->
+                // Issues can shift between pages while paging; drop repeats so LazyColumn keys stay unique.
+                val issues = (firstPage + more).distinctBy { it.id }
                 if (issues.isEmpty()) {
                     // Keep it scrollable so pull-to-refresh still works on an empty list.
                     LazyColumn(Modifier.fillMaxSize()) { item { EmptyState("No issues") } }
@@ -101,6 +118,16 @@ fun IssuesScreen(
                         items(issues, key = { it.id }) { issue ->
                             IssueRow(issue, agentsById[issue.assigneeAgentId]?.name) { onOpen(issue.id) }
                             HorizontalDivider()
+                        }
+                        if (hasMore) {
+                            item(key = "load-more") {
+                                Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    moreError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                                    OutlinedButton(enabled = !loadingMore, onClick = { loadMore(firstPage.size + more.size) }) {
+                                        Text(if (loadingMore) "Loading…" else "Load more")
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -142,12 +169,17 @@ fun IssueDetailScreen(api: PaperclipApi, issueId: String, agentsById: Map<String
     var actionError by remember { mutableStateOf<String?>(null) }
     var draft by rememberSaveable { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
+    var updating by remember { mutableStateOf(false) }
 
+    // Ignores taps while a change is saving, so a double tap cannot send two PATCHes.
     fun update(field: String, value: String?) {
+        if (updating) return
+        updating = true
         scope.launch {
             actionError = runCatching {
                 api.updateIssue(issueId, buildJsonObject { put(field, value) })
             }.exceptionOrNull()?.message
+            updating = false
             issueState.reload()
         }
     }

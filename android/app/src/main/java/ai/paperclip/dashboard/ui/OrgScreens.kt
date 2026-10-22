@@ -91,7 +91,7 @@ fun CostsScreen(api: PaperclipApi, companyId: String, onOpenAgent: (String) -> U
             if (byAgent.isNotEmpty()) {
                 item { Text("By agent", style = MaterialTheme.typography.titleMedium) }
                 val max = byAgent.maxOf { it.costCents }.coerceAtLeast(1)
-                items(byAgent.sortedByDescending { it.costCents }) { a ->
+                items(byAgent.sortedByDescending { it.costCents }, key = { "agent:${it.agentId}" }) { a ->
                     CostBar(a.agentName ?: "Unattributed", a.costCents, max, "${tokens(a.inputTokens)} in · ${tokens(a.outputTokens)} out") {
                         a.agentId?.let(onOpenAgent)
                     }
@@ -100,7 +100,7 @@ fun CostsScreen(api: PaperclipApi, companyId: String, onOpenAgent: (String) -> U
             if (byProject.isNotEmpty()) {
                 item { Text("By project", style = MaterialTheme.typography.titleMedium) }
                 val max = byProject.maxOf { it.costCents }.coerceAtLeast(1)
-                items(byProject.sortedByDescending { it.costCents }) { p ->
+                items(byProject.sortedByDescending { it.costCents }, key = { "project:${it.projectId}" }) { p ->
                     CostBar(p.projectName ?: "No project", p.costCents, max, "${tokens(p.inputTokens)} in · ${tokens(p.outputTokens)} out", null)
                 }
             }
