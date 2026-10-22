@@ -100,8 +100,9 @@ private fun requester(a: Approval, agentsById: Map<String, Agent>): String? =
 private val prettyJson = Json { prettyPrint = true }
 
 @Composable
-fun ApprovalDetailScreen(api: PaperclipApi, approvalId: String, agentsById: Map<String, Agent>) {
+fun ApprovalDetailScreen(api: PaperclipApi, approvalId: String, agentsById: Map<String, Agent>, onOpenIssue: (String) -> Unit = {}) {
     val state = rememberLoad(approvalId) { api.approval(approvalId) }
+    val linked = rememberLoad(approvalId) { runCatching { api.approvalIssues(approvalId) }.getOrDefault(emptyList()) }
     val comments = rememberLoad(approvalId) { api.approvalComments(approvalId) }
     val scope = rememberCoroutineScope()
     var note by rememberSaveable { mutableStateOf("") }
@@ -155,7 +156,23 @@ fun ApprovalDetailScreen(api: PaperclipApi, approvalId: String, agentsById: Map<
                     }
                 }
             }
+            if (a.status == "revision_requested") {
+                item {
+                    OutlinedButton(enabled = !busy, onClick = { run({ api.resubmitApproval(a.id) }) { state.reload() } }) {
+                        Text("Resubmit")
+                    }
+                }
+            }
             error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            linked.data?.takeIf { it.isNotEmpty() }?.let { issues ->
+                item { Text("Linked tasks", style = MaterialTheme.typography.titleMedium) }
+                items(issues, key = { "issue:" + it.id }) { i ->
+                    Row(Modifier.fillMaxWidth().clickable { onOpenIssue(i.id) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${i.identifier ?: ""} ${i.title}".trim(), modifier = Modifier.weight(1f))
+                        StatusPill(i.status)
+                    }
+                }
+            }
             item { Text("Comments", style = MaterialTheme.typography.titleMedium) }
             val list = comments.data
             if (list == null) {

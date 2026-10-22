@@ -75,6 +75,37 @@ data class Issue(
     val assigneeUserId: String? = null,
     val createdAt: String? = null,
     val updatedAt: String? = null,
+    val goalId: String? = null,
+    val labelIds: List<String> = emptyList(),
+    val labels: List<IssueLabel> = emptyList(),
+    val blockedBy: List<IssueRelation> = emptyList(),
+    val blocks: List<IssueRelation> = emptyList(),
+    val isUnreadForMe: Boolean = false,
+    val descriptionTruncated: Boolean = false,
+    val activeRun: ActiveRunRef? = null,
+    val lastActivityAt: String? = null,
+)
+
+@Serializable
+data class IssueLabel(val id: String, val name: String = "", val color: String = "")
+
+/** Issue summary used in blocked-by / blocks relations. */
+@Serializable
+data class IssueRelation(
+    val id: String,
+    val identifier: String? = null,
+    val title: String = "",
+    val status: String = "todo",
+    val priority: String = "medium",
+    val assigneeAgentId: String? = null,
+)
+
+@Serializable
+data class ActiveRunRef(
+    val id: String,
+    val status: String = "",
+    val agentId: String? = null,
+    val startedAt: String? = null,
 )
 
 @Serializable
@@ -86,6 +117,7 @@ data class IssueComment(
     val authorUserId: String? = null,
     val body: String = "",
     val createdAt: String? = null,
+    val deletedAt: String? = null,
 )
 
 @Serializable
@@ -104,6 +136,7 @@ data class Agent(
     val errorReason: String? = null,
     val lastHeartbeatAt: String? = null,
     val reportsTo: String? = null,
+    val urlKey: String? = null,
 )
 
 @Serializable

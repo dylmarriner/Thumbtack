@@ -26,6 +26,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -162,107 +164,28 @@ private fun IssueRow(issue: Issue, assignee: String?, onClick: () -> Unit) {
 }
 
 @Composable
-fun IssueDetailScreen(api: PaperclipApi, issueId: String, agentsById: Map<String, Agent>) {
-    val issueState = rememberLoad(issueId) { api.issue(issueId) }
-    val commentsState = rememberLoad(issueId) { api.issueComments(issueId) }
-    val scope = rememberCoroutineScope()
-    var actionError by remember { mutableStateOf<String?>(null) }
-    var draft by rememberSaveable { mutableStateOf("") }
-    var sending by remember { mutableStateOf(false) }
-    var updating by remember { mutableStateOf(false) }
-
-    // Ignores taps while a change is saving, so a double tap cannot send two PATCHes.
-    fun update(field: String, value: String?) {
-        if (updating) return
-        updating = true
-        scope.launch {
-            actionError = runCatching {
-                api.updateIssue(issueId, buildJsonObject { put(field, value) })
-            }.exceptionOrNull()?.message
-            updating = false
-            issueState.reload()
-        }
-    }
-
-    Column(Modifier.fillMaxSize().imePadding()) {
-        LoadedContent(issueState, Modifier.weight(1f)) { issue ->
-            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        issue.identifier?.let { Text(it, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        Text(issue.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ChoiceButton("Status", issue.status, ISSUE_STATUSES) { update("status", it) }
-                            ChoiceButton("Priority", issue.priority, ISSUE_PRIORITIES) { update("priority", it) }
-                        }
-                        AssigneeButton(issue.assigneeAgentId, agentsById) { update("assigneeAgentId", it) }
-                        actionError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    }
-                }
-                item {
-                    OutlinedCard(Modifier.fillMaxWidth()) {
-                        Text(
-                            issue.description?.ifBlank { null } ?: "No description",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(16.dp),
-                        )
-                    }
-                }
-                item { Text("Comments", style = MaterialTheme.typography.titleMedium) }
-                val comments = commentsState.data
-                when {
-                    comments == null && commentsState.error != null -> item { Text(commentsState.error, color = MaterialTheme.colorScheme.error) }
-                    comments == null -> item { Text("Loading…") }
-                    comments.isEmpty() -> item { Text("No comments yet", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    else -> items(comments, key = { it.id }) { c ->
-                        val author = c.authorAgentId?.let { agentsById[it]?.name ?: "Agent" }
-                            ?: if (c.authorUserId != null) "Board" else humanize(c.authorType ?: "system")
-                        CommentCard(author, c.createdAt, c.body)
-                    }
-                }
-            }
-        }
-        HorizontalDivider()
-        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = { draft = it },
-                placeholder = { Text("Add a comment") },
-                maxLines = 5,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(
-                enabled = draft.isNotBlank() && !sending,
-                onClick = {
-                    sending = true
-                    scope.launch {
-                        val result = runCatching { api.addIssueComment(issueId, draft.trim()) }
-                        actionError = result.exceptionOrNull()?.message
-                        if (result.isSuccess) draft = ""
-                        sending = false
-                        commentsState.reload()
-                    }
-                },
-            ) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
-        }
-    }
-}
-
-@Composable
-fun CommentCard(author: String, createdAt: String?, body: String) {
+fun CommentCard(author: String, createdAt: String?, body: String, onDelete: (() -> Unit)? = null) {
+    var confirm by remember { mutableStateOf(false) }
+    if (confirm) AlertDialog(
+        onDismissRequest = { confirm = false },
+        title = { Text("Delete comment?") },
+        confirmButton = { TextButton(onClick = { confirm = false; onDelete?.invoke() }) { Text("Delete") } },
+        dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+    )
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(author, style = MaterialTheme.typography.labelLarge)
-                Text(relativeTime(createdAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(relativeTime(createdAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                if (onDelete != null) TextButton(onClick = { confirm = true }) { Text("Delete") }
             }
-            Text(body, style = MaterialTheme.typography.bodyMedium)
+            Markdown(body)
         }
     }
 }
 
 @Composable
-private fun ChoiceButton(label: String, value: String, options: List<String>, onPick: (String) -> Unit) {
+internal fun ChoiceButton(label: String, value: String, options: List<String>, onPick: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         OutlinedButton(onClick = { open = true }) { Text("$label: ${humanize(value)}") }
@@ -278,7 +201,7 @@ private fun ChoiceButton(label: String, value: String, options: List<String>, on
 }
 
 @Composable
-private fun AssigneeButton(agentId: String?, agentsById: Map<String, Agent>, onPick: (String?) -> Unit) {
+internal fun AssigneeButton(agentId: String?, agentsById: Map<String, Agent>, onPick: (String?) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         OutlinedButton(onClick = { open = true }) {

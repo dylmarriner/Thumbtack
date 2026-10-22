@@ -1,5 +1,11 @@
 package ai.paperclip.dashboard
 
+import ai.paperclip.dashboard.ui.RunDetailScreen
+import ai.paperclip.dashboard.ui.IssueDocumentScreen
+import ai.paperclip.dashboard.ui.RunsScreen
+import ai.paperclip.dashboard.ui.ChatsScreen
+import ai.paperclip.dashboard.ui.LiveRunsScreen
+import ai.paperclip.dashboard.ui.InboxScreen
 import ai.paperclip.dashboard.ui.ActivityScreen
 import ai.paperclip.dashboard.ui.AgentDetailScreen
 import ai.paperclip.dashboard.ui.AgentsScreen
@@ -70,6 +76,9 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Checklist
@@ -203,11 +212,14 @@ private val MEMBERS = Section("members", "Members", Icons.Default.Group)
 private val COSTS = Section("costs", "Costs", Icons.Default.AttachMoney)
 private val ACTIVITY = Section("activity", "Activity", Icons.Default.History)
 private val SETTINGS = Section("settings", "Settings", Icons.Default.Settings)
+private val LIVE = Section("live", "Live", Icons.Default.Sensors)
+private val CHATS = Section("chats", "Chats", Icons.Default.Forum)
+private val RUNS = Section("runs", "Runs", Icons.Default.PlayCircle)
 
 // Same grouping as the web sidebar (ui/src/components/Sidebar.tsx).
-private val TOP_SECTIONS = listOf(SEARCH, DASHBOARD, INBOX, APPROVALS, DECISIONS)
+private val TOP_SECTIONS = listOf(SEARCH, DASHBOARD, LIVE, INBOX, CHATS, APPROVALS, DECISIONS)
 private val WORK_SECTIONS = listOf(TASKS, PROJECTS, ROUTINES, ARTIFACTS, GOALS, WORKSPACES)
-private val ORG_SECTIONS = listOf(AGENTS, ORG, SKILLS, CONNECTORS, MEMBERS, COSTS, ACTIVITY, SETTINGS)
+private val ORG_SECTIONS = listOf(AGENTS, RUNS, ORG, SKILLS, CONNECTORS, MEMBERS, COSTS, ACTIVITY, SETTINGS)
 private val ALL_SECTIONS = TOP_SECTIONS + WORK_SECTIONS + ORG_SECTIONS
 
 private val BOTTOM_TABS = listOf(DASHBOARD, INBOX, TASKS, AGENTS, APPROVALS)
@@ -226,6 +238,8 @@ private fun detailTitle(route: String?): String = when (baseRoute(route)) {
     "routine" -> "Routine"
     "decision" -> "Decision"
     "inspect" -> "Details"
+    "run" -> "Run"
+    "doc" -> "Document"
     else -> "Paperclip"
 }
 
@@ -443,6 +457,7 @@ private fun AppNavHost(nav: NavHostController, vm: AppViewModel, companyId: Stri
     val openIssue = { id: String -> nav.navigate("issue/$id") }
     val openAgent = { id: String -> nav.navigate("agent/$id") }
     val newIssue = { nav.navigate("issue/new") }
+    val openRun = { id: String -> nav.navigate("run/$id") }
     val inspect = { o: JsonObject ->
         vm.inspected = o
         nav.navigate("inspect")
@@ -476,7 +491,17 @@ private fun AppNavHost(nav: NavHostController, vm: AppViewModel, companyId: Stri
             }
         }
         // Inbox = tasks the signed-in board user has touched, as in the web Inbox page.
-        composable(INBOX.route) { IssuesScreen(api, companyId, null, agents, openIssue, newIssue, filter = "touchedByUserId=me") }
+        composable(INBOX.route) {
+            InboxScreen(
+                api, companyId, agents, vm.badges.approvals,
+                onOpen = { openIssue(it.id) },
+                onOpenApprovals = { nav.navigateSection(APPROVALS.route) },
+                onChanged = { vm.refreshSidebar() },
+            )
+        }
+        composable(LIVE.route) { LiveRunsScreen(api, companyId, agents) { openRun(it.id) } }
+        composable(CHATS.route) { ChatsScreen(api, companyId, agents, openIssue) }
+        composable(RUNS.route) { RunsScreen(api, companyId, agents) { openRun(it.id) } }
         composable(APPROVALS.route) { ApprovalsScreen(api, companyId, agents) { nav.navigate("approval/$it") } }
         composable(DECISIONS.route) { DecisionsScreen(api, companyId, agents) { nav.navigate("decision/$it") } }
         composable(
@@ -511,9 +536,19 @@ private fun AppNavHost(nav: NavHostController, vm: AppViewModel, companyId: Stri
                 nav.navigate("issue/$id") { popUpTo("issue/new") { inclusive = true } }
             }
         }
-        composable("issue/{id}") { e -> IssueDetailScreen(api, e.arguments!!.getString("id")!!, agents) }
-        composable("agent/{id}") { e -> AgentDetailScreen(api, companyId, e.arguments!!.getString("id")!!, agents, vm::refreshAgents) }
-        composable("approval/{id}") { e -> ApprovalDetailScreen(api, e.arguments!!.getString("id")!!, agents) }
+        composable("issue/{id}") { e ->
+            IssueDetailScreen(
+                api, e.arguments!!.getString("id")!!, agents,
+                onOpenIssue = openIssue,
+                onOpenRun = openRun,
+                onOpenDocument = { issueId, key -> nav.navigate("doc/$issueId/$key") },
+                onDeleted = { nav.popBackStack(); vm.refreshSidebar() },
+            )
+        }
+        composable("doc/{issueId}/{key}") { e -> IssueDocumentScreen(api, e.arguments!!.getString("issueId")!!, e.arguments!!.getString("key")!!) }
+        composable("run/{id}") { e -> RunDetailScreen(api, companyId, e.arguments!!.getString("id")!!, agents, openIssue) }
+        composable("agent/{id}") { e -> AgentDetailScreen(api, companyId, e.arguments!!.getString("id")!!, agents, vm::refreshAgents, onOpenRun = openRun, onOpenChat = openIssue) }
+        composable("approval/{id}") { e -> ApprovalDetailScreen(api, e.arguments!!.getString("id")!!, agents, openIssue) }
         composable("project/{id}") { e -> ProjectDetailScreen(api, companyId, e.arguments!!.getString("id")!!, agents, openIssue, newIssue) }
         composable("goal/{id}") { e -> GoalDetailScreen(api, e.arguments!!.getString("id")!!, agents) }
         composable("routine/{id}") { e -> RoutineDetailScreen(api, e.arguments!!.getString("id")!!, agents) }

@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -157,23 +158,165 @@ class PaperclipApi(private val store: SessionStore) {
     suspend fun issueComments(id: String): List<IssueComment> =
         get<List<IssueComment>>("/issues/$id/comments?order=desc&limit=200").asReversed()
 
-    suspend fun addIssueComment(id: String, body: String): IssueComment =
+    /** [reopen] reopens a closed issue; [interrupt] steers the agent's running run. */
+    suspend fun addIssueComment(id: String, body: String, reopen: Boolean = false, interrupt: Boolean = false): IssueComment =
         post("/issues/$id/comments", buildJsonObject {
             put("body", body)
             put("clientRequestId", java.util.UUID.randomUUID().toString())
+            if (reopen) put("reopen", true)
+            if (interrupt) put("interrupt", true)
         })
+
+    suspend fun deleteIssueComment(issueId: String, commentId: String) {
+        raw("DELETE", "/issues/$issueId/comments/$commentId")
+    }
+
+    suspend fun markIssueRead(id: String) { raw("POST", "/issues/$id/read") }
+    suspend fun markIssueUnread(id: String) { raw("DELETE", "/issues/$id/read") }
+    suspend fun archiveFromInbox(id: String) { raw("POST", "/issues/$id/inbox-archive") }
+    suspend fun unarchiveFromInbox(id: String) { raw("DELETE", "/issues/$id/inbox-archive") }
+    suspend fun deleteIssue(id: String) { raw("DELETE", "/issues/$id") }
+
+    suspend fun issueRuns(id: String): List<IssueRun> = get("/issues/$id/runs")
+    suspend fun issueActivity(id: String): List<ActivityEvent> = get("/issues/$id/activity")
+    suspend fun subIssues(companyId: String, parentId: String): List<Issue> =
+        get("/companies/$companyId/issues?parentId=$parentId&limit=200")
+
+    suspend fun labels(companyId: String): List<IssueLabel> = get("/companies/$companyId/labels")
+    suspend fun createLabel(companyId: String, name: String, color: String): IssueLabel =
+        post("/companies/$companyId/labels", buildJsonObject { put("name", name); put("color", color) })
+
+    suspend fun issueDocuments(id: String): List<IssueDocumentSummary> = get("/issues/$id/documents")
+    suspend fun issueDocument(id: String, key: String): IssueDocument = get("/issues/$id/documents/${enc(key)}")
+
+    /** [baseRevisionId] makes the server reject the save if someone else changed the document meanwhile. */
+    suspend fun saveIssueDocument(id: String, key: String, title: String?, body: String, baseRevisionId: String?) {
+        raw("PUT", "/issues/$id/documents/${enc(key)}", buildJsonObject {
+            title?.let { put("title", it) }
+            put("format", "markdown")
+            put("body", body)
+            baseRevisionId?.let { put("baseRevisionId", it) }
+        })
+    }
+
+    suspend fun issueAttachments(id: String): List<IssueAttachment> = get("/issues/$id/attachments")
+
+    /** Raw bytes of an attachment, for viewing or sharing. */
+    suspend fun download(path: String): ByteArray = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url(store.baseUrl + path)
+        store.boardKey.takeIf { it.isNotBlank() }?.let { req.header("Authorization", "Bearer $it") }
+        client.newCall(req.build()).execute().use { res ->
+            if (!res.isSuccessful) throw ApiException(res.code, "HTTP ${res.code}")
+            res.body?.bytes() ?: ByteArray(0)
+        }
+    }
+
+    suspend fun uploadAttachment(companyId: String, issueId: String, name: String, mime: String, bytes: ByteArray) {
+        withContext(Dispatchers.IO) {
+            val body = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM)
+                .addFormDataPart("file", name, bytes.toRequestBody(mime.toMediaTypeOrNull()))
+                .build()
+            val req = Request.Builder().url(store.baseUrl + "/api/companies/$companyId/issues/$issueId/attachments")
+                .post(body).header("Origin", origin())
+            store.boardKey.takeIf { it.isNotBlank() }?.let { req.header("Authorization", "Bearer $it") }
+            client.newCall(req.build()).execute().use { res ->
+                if (!res.isSuccessful) throw ApiException(res.code, errorMessage(res.body?.string().orEmpty(), res.code))
+            }
+        }
+    }
+
+    suspend fun deleteAttachment(id: String) { raw("DELETE", "/attachments/$id") }
+
+    suspend fun interactions(id: String): List<IssueInteraction> = get("/issues/$id/interactions")
+
+    /** action is accept | reject | respond | skip | cancel. */
+    suspend fun resolveInteraction(issueId: String, interactionId: String, action: String, body: JsonObject = JsonObject(emptyMap())) {
+        raw("POST", "/issues/$issueId/interactions/$interactionId/$action", body)
+    }
+
+    /** Wakes the assignee to work on this issue now. */
+    suspend fun wakeAgentForIssue(agentId: String, companyId: String, issueId: String) {
+        raw("POST", "/agents/$agentId/wakeup?companyId=$companyId", buildJsonObject {
+            put("source", "on_demand")
+            put("triggerDetail", "manual")
+            put("reason", "Woken from the mobile app")
+            put("payload", buildJsonObject { put("issueId", issueId) })
+        })
+    }
+
+    // --- Inbox ---
+
+    suspend fun inbox(companyId: String, tab: String): List<Issue> {
+        val common = "includeRoutineExecutions=true&limit=200"
+        val qs = when (tab) {
+            "mine" -> "touchedByUserId=me&inboxArchivedByUserId=me&status=$INBOX_MINE_STATUSES&$common"
+            "unread" -> "unreadForUserId=me&inboxArchivedByUserId=me&$common"
+            "blocked" -> "attention=blocked&$common"
+            else -> common
+        }
+        return get("/companies/$companyId/issues?$qs")
+    }
+
+    suspend fun joinRequests(companyId: String): List<JoinRequest> =
+        get("/companies/$companyId/join-requests?status=pending_approval")
+
+    /** decision is approve | reject. */
+    suspend fun decideJoinRequest(companyId: String, requestId: String, decision: String) {
+        raw("POST", "/companies/$companyId/join-requests/$requestId/$decision")
+    }
+
+    suspend fun inboxDismissals(companyId: String): List<InboxDismissal> = get("/companies/$companyId/inbox-dismissals")
+    suspend fun dismissInboxItem(companyId: String, itemKey: String) {
+        raw("POST", "/companies/$companyId/inbox-dismissals", buildJsonObject { put("itemKey", itemKey); put("kind", "dismiss") })
+    }
+
+    // --- Runs ---
+
+    suspend fun runs(companyId: String, agentId: String? = null, limit: Int = 100): List<HeartbeatRun> =
+        get("/companies/$companyId/heartbeat-runs?summary=true&limit=$limit" + (agentId?.let { "&agentId=$it" } ?: ""))
+
+    suspend fun liveRuns(companyId: String): List<HeartbeatRun> = get("/companies/$companyId/live-runs?minCount=10&limit=30")
+    suspend fun run(id: String): HeartbeatRun = get("/heartbeat-runs/$id")
+    suspend fun runLog(id: String, offset: Long): RunLogPage = get("/heartbeat-runs/$id/log?offset=$offset&limitBytes=256000")
+    suspend fun runEvents(id: String, afterSeq: Int = 0): List<RunEvent> = get("/heartbeat-runs/$id/events?afterSeq=$afterSeq&limit=500")
+    suspend fun runIssues(id: String): List<Issue> = get("/heartbeat-runs/$id/issues")
+    suspend fun cancelRun(id: String) { raw("POST", "/heartbeat-runs/$id/cancel") }
+
+    // --- Chats ---
+
+    suspend fun chats(companyId: String): List<Issue> = get("/companies/$companyId/chats")
+
+    /** Returns the chat issue with [agentRef], creating it if none exists. */
+    suspend fun openChat(companyId: String, agentRef: String): Issue {
+        val existing = runCatching { json.parseToJsonElement(raw("GET", "/companies/$companyId/chats/${enc(agentRef)}")) }.getOrNull()
+        if (existing is JsonObject) return json.decodeFromJsonElement(Issue.serializer(), existing)
+        return post("/companies/$companyId/chats/${enc(agentRef)}")
+    }
+
+    /** Opens the company live-event socket. Caller closes it. */
+    fun liveEvents(companyId: String, listener: okhttp3.WebSocketListener): okhttp3.WebSocket {
+        val url = store.baseUrl.replaceFirst("http", "ws") + "/api/companies/$companyId/events/ws"
+        val req = Request.Builder().url(url).header("Origin", origin())
+        store.boardKey.takeIf { it.isNotBlank() }?.let { req.header("Authorization", "Bearer $it") }
+        return client.newWebSocket(req.build(), listener)
+    }
 
     suspend fun updateIssue(id: String, fields: JsonObject) {
         raw("PATCH", "/issues/$id", fields)
     }
 
-    suspend fun createIssue(companyId: String, title: String, description: String, priority: String, assigneeAgentId: String?): Issue =
+    suspend fun createIssue(
+        companyId: String, title: String, description: String, priority: String, assigneeAgentId: String?,
+        parentId: String? = null, projectId: String? = null,
+    ): Issue =
         post("/companies/$companyId/issues", buildJsonObject {
             put("title", title)
             if (description.isNotBlank()) put("description", description)
             put("priority", priority)
             put("status", "todo")
             assigneeAgentId?.let { put("assigneeAgentId", it) }
+            parentId?.let { put("parentId", it) }
+            projectId?.let { put("projectId", it) }
         })
 
     // --- Agents ---
@@ -183,6 +326,11 @@ class PaperclipApi(private val store: SessionStore) {
     suspend fun pauseAgent(id: String, companyId: String) { raw("POST", "/agents/$id/pause?companyId=$companyId") }
     suspend fun resumeAgent(id: String, companyId: String) { raw("POST", "/agents/$id/resume?companyId=$companyId") }
     suspend fun invokeAgent(id: String, companyId: String) { raw("POST", "/agents/$id/heartbeat/invoke?companyId=$companyId") }
+    suspend fun clearAgentError(id: String, companyId: String) { raw("POST", "/agents/$id/clear-error?companyId=$companyId") }
+    suspend fun terminateAgent(id: String, companyId: String) { raw("POST", "/agents/$id/terminate?companyId=$companyId") }
+    suspend fun approveAgent(id: String, companyId: String) { raw("POST", "/agents/$id/approve?companyId=$companyId") }
+    suspend fun updateAgent(id: String, companyId: String, fields: JsonObject) { raw("PATCH", "/agents/$id?companyId=$companyId", fields) }
+    suspend fun agentRuntimeState(id: String, companyId: String): JsonObject = get("/agents/$id/runtime-state?companyId=$companyId")
 
     // --- Approvals ---
 
@@ -190,6 +338,8 @@ class PaperclipApi(private val store: SessionStore) {
         get("/companies/$companyId/approvals" + (status?.let { "?status=${enc(it)}" } ?: ""))
 
     suspend fun approval(id: String): Approval = get("/approvals/$id")
+    suspend fun approvalIssues(id: String): List<Issue> = get("/approvals/$id/issues")
+    suspend fun resubmitApproval(id: String) { raw("POST", "/approvals/$id/resubmit") }
     suspend fun approvalComments(id: String): List<ApprovalComment> = get("/approvals/$id/comments")
 
     suspend fun addApprovalComment(id: String, body: String) {
