@@ -5,6 +5,7 @@ package ai.paperclip.dashboard.ui
 import ai.paperclip.dashboard.data.Agent
 import ai.paperclip.dashboard.data.PaperclipApi
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -50,14 +51,15 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 @Composable
-fun AgentsScreen(api: PaperclipApi, companyId: String, onOpen: (String) -> Unit) {
+fun AgentsScreen(api: PaperclipApi, companyId: String, onOpen: (String) -> Unit, onHire: () -> Unit) {
     val state = rememberLoad(companyId) { api.agents(companyId) }
+    Box(Modifier.fillMaxSize()) {
     LoadedContent(state) { agents ->
         val visible = agents.filter { it.status != "terminated" }.sortedWith(compareBy({ agentOrder(it.status) }, { it.name }))
         if (visible.isEmpty()) {
             LazyColumn(Modifier.fillMaxSize()) { item { EmptyState("No agents") } }
         } else {
-            LazyColumn {
+            LazyColumn(contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 88.dp)) {
                 items(visible, key = { it.id }) { a ->
                     Column(
                         Modifier.fillMaxWidth().clickable { onOpen(a.id) }.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -79,6 +81,13 @@ fun AgentsScreen(api: PaperclipApi, companyId: String, onOpen: (String) -> Unit)
             }
         }
     }
+        androidx.compose.material3.ExtendedFloatingActionButton(
+            onClick = onHire,
+            icon = { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.Add, null) },
+            text = { Text("Hire agent") },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        )
+    }
 }
 
 private fun agentOrder(status: String) = when (status) {
@@ -91,7 +100,7 @@ private fun agentOrder(status: String) = when (status) {
     else -> 6
 }
 
-private val AGENT_TABS = listOf("Overview", "Runs", "Skills", "Settings", "Runtime")
+private val AGENT_TABS = listOf("Overview", "Runs", "Configuration", "Instructions", "Skills", "Settings", "Runtime")
 
 @Composable
 fun AgentDetailScreen(
@@ -181,9 +190,11 @@ fun AgentDetailScreen(
                 when (tab) {
                     0 -> AgentOverview(a, agentsById)
                     1 -> RunsScreen(api, companyId, agentsById, agentId = a.id) { onOpenRun(it.id) }
-                    2 -> AgentSkillsTab(api, companyId, a.id)
-                    3 -> AgentSettings(api, companyId, a, agentsById) { state.reload(); onChanged() }
-                    4 -> AgentRuntime(api, companyId, a.id)
+                    2 -> AgentConfigTab(api, companyId, a) { state.reload(); onChanged() }
+                    3 -> AgentInstructionsTab(api, companyId, a.id)
+                    4 -> AgentSkillsTab(api, companyId, a.id)
+                    5 -> AgentSettings(api, companyId, a, agentsById) { state.reload(); onChanged() }
+                    6 -> AgentRuntime(api, companyId, a.id)
                 }
             }
         }

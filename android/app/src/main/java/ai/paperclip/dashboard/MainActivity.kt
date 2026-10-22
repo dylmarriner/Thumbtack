@@ -22,6 +22,7 @@ import ai.paperclip.dashboard.ui.IssueDetailScreen
 import ai.paperclip.dashboard.ui.IssuesScreen
 import ai.paperclip.dashboard.ui.JsonDetailScreen
 import ai.paperclip.dashboard.ui.JsonListScreen
+import ai.paperclip.dashboard.ui.HireAgentScreen
 import ai.paperclip.dashboard.ui.ProjectEditScreen
 import ai.paperclip.dashboard.ui.GoalEditScreen
 import ai.paperclip.dashboard.ui.RoutineEditScreen
@@ -251,6 +252,7 @@ private fun detailTitle(route: String?): String = when (baseRoute(route)) {
     "run" -> "Run"
     "doc" -> "Document"
     "project-edit" -> "Project"
+    "agent-hire" -> "Hire agent"
     "goal-edit" -> "Goal"
     "routine-edit" -> "Routine"
     "skill", "catalog" -> "Skill"
@@ -530,7 +532,14 @@ private fun AppNavHost(nav: NavHostController, vm: AppViewModel, companyId: Stri
         composable(ARTIFACTS.route) { JsonListScreen(api, "/companies/$companyId/artifacts", "No artifacts", inspect) }
         composable(GOALS.route) { GoalsScreen(api, companyId, { nav.navigate("goal/$it") }) { nav.navigate("goal-edit/new") } }
         composable(WORKSPACES.route) { JsonListScreen(api, "/companies/$companyId/execution-workspaces", "No workspaces", inspect) }
-        composable(AGENTS.route) { AgentsScreen(api, companyId, openAgent) }
+        composable(AGENTS.route) { AgentsScreen(api, companyId, openAgent) { nav.navigate("agent-hire") } }
+        composable("agent-hire") {
+            HireAgentScreen(api, companyId, agents) { id, approvalId ->
+                vm.refreshAgents()
+                nav.popBackStack()
+                nav.navigate(if (approvalId != null) "approval/$approvalId" else "agent/$id")
+            }
+        }
         composable(ORG.route) { OrgChartScreen(api, companyId, openAgent) }
         composable(SKILLS.route) { SkillsScreen(api, companyId, { nav.navigate("skill/$it") }, { nav.navigate("catalog/$it") }) }
         composable("skill/{id}") { e -> SkillDetailScreen(api, companyId, e.arguments!!.getString("id")!!, openAgent) { nav.popBackStack() } }
