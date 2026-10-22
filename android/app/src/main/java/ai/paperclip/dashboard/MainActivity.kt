@@ -22,6 +22,11 @@ import ai.paperclip.dashboard.ui.IssueDetailScreen
 import ai.paperclip.dashboard.ui.IssuesScreen
 import ai.paperclip.dashboard.ui.JsonDetailScreen
 import ai.paperclip.dashboard.ui.JsonListScreen
+import ai.paperclip.dashboard.ui.SkillsScreen
+import ai.paperclip.dashboard.ui.SkillDetailScreen
+import ai.paperclip.dashboard.ui.CatalogSkillScreen
+import ai.paperclip.dashboard.ui.PluginsScreen
+import ai.paperclip.dashboard.ui.PluginDetailScreen
 import ai.paperclip.dashboard.ui.LoginScreen
 import ai.paperclip.dashboard.ui.NewIssueScreen
 import ai.paperclip.dashboard.ui.OrgChartScreen
@@ -61,6 +66,7 @@ import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Edit
@@ -207,6 +213,7 @@ private val WORKSPACES = Section("workspaces", "Workspaces", Icons.Default.Accou
 private val AGENTS = Section("agents", "Agents", Icons.Default.SmartToy)
 private val ORG = Section("org", "Org chart", Icons.Default.AccountBalance)
 private val SKILLS = Section("skills", "Skills", Icons.Default.Build)
+private val PLUGINS = Section("plugins", "Plugins", Icons.Default.Extension)
 private val CONNECTORS = Section("connectors", "Connectors", Icons.Default.Power)
 private val MEMBERS = Section("members", "Members", Icons.Default.Group)
 private val COSTS = Section("costs", "Costs", Icons.Default.AttachMoney)
@@ -219,7 +226,7 @@ private val RUNS = Section("runs", "Runs", Icons.Default.PlayCircle)
 // Same grouping as the web sidebar (ui/src/components/Sidebar.tsx).
 private val TOP_SECTIONS = listOf(SEARCH, DASHBOARD, LIVE, INBOX, CHATS, APPROVALS, DECISIONS)
 private val WORK_SECTIONS = listOf(TASKS, PROJECTS, ROUTINES, ARTIFACTS, GOALS, WORKSPACES)
-private val ORG_SECTIONS = listOf(AGENTS, RUNS, ORG, SKILLS, CONNECTORS, MEMBERS, COSTS, ACTIVITY, SETTINGS)
+private val ORG_SECTIONS = listOf(AGENTS, RUNS, ORG, SKILLS, PLUGINS, CONNECTORS, MEMBERS, COSTS, ACTIVITY, SETTINGS)
 private val ALL_SECTIONS = TOP_SECTIONS + WORK_SECTIONS + ORG_SECTIONS
 
 private val BOTTOM_TABS = listOf(DASHBOARD, INBOX, TASKS, AGENTS, APPROVALS)
@@ -240,6 +247,8 @@ private fun detailTitle(route: String?): String = when (baseRoute(route)) {
     "inspect" -> "Details"
     "run" -> "Run"
     "doc" -> "Document"
+    "skill", "catalog" -> "Skill"
+    "plugin" -> "Plugin"
     else -> "Paperclip"
 }
 
@@ -517,7 +526,13 @@ private fun AppNavHost(nav: NavHostController, vm: AppViewModel, companyId: Stri
         composable(WORKSPACES.route) { JsonListScreen(api, "/companies/$companyId/execution-workspaces", "No workspaces", inspect) }
         composable(AGENTS.route) { AgentsScreen(api, companyId, openAgent) }
         composable(ORG.route) { OrgChartScreen(api, companyId, openAgent) }
-        composable(SKILLS.route) { JsonListScreen(api, "/companies/$companyId/skills", "No skills", inspect) }
+        composable(SKILLS.route) { SkillsScreen(api, companyId, { nav.navigate("skill/$it") }, { nav.navigate("catalog/$it") }) }
+        composable("skill/{id}") { e -> SkillDetailScreen(api, companyId, e.arguments!!.getString("id")!!, openAgent) { nav.popBackStack() } }
+        composable("catalog/{id}") { e ->
+            CatalogSkillScreen(api, companyId, e.arguments!!.getString("id")!!) { id -> nav.popBackStack(); id?.let { nav.navigate("skill/$it") } }
+        }
+        composable(PLUGINS.route) { PluginsScreen(api) { nav.navigate("plugin/$it") } }
+        composable("plugin/{id}") { e -> PluginDetailScreen(api, companyId, e.arguments!!.getString("id")!!) { nav.popBackStack() } }
         composable(CONNECTORS.route) { JsonListScreen(api, "/companies/$companyId/tools/connections", "No connectors", inspect) }
         composable(MEMBERS.route) { JsonListScreen(api, "/companies/$companyId/members", "No members", inspect) }
         composable(COSTS.route) { CostsScreen(api, companyId, openAgent) }

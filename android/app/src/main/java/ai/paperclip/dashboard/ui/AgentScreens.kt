@@ -91,7 +91,7 @@ private fun agentOrder(status: String) = when (status) {
     else -> 6
 }
 
-private val AGENT_TABS = listOf("Overview", "Runs", "Settings", "Runtime")
+private val AGENT_TABS = listOf("Overview", "Runs", "Skills", "Settings", "Runtime")
 
 @Composable
 fun AgentDetailScreen(
@@ -181,8 +181,9 @@ fun AgentDetailScreen(
                 when (tab) {
                     0 -> AgentOverview(a, agentsById)
                     1 -> RunsScreen(api, companyId, agentsById, agentId = a.id) { onOpenRun(it.id) }
-                    2 -> AgentSettings(api, companyId, a, agentsById) { state.reload(); onChanged() }
-                    3 -> AgentRuntime(api, companyId, a.id)
+                    2 -> AgentSkillsTab(api, companyId, a.id)
+                    3 -> AgentSettings(api, companyId, a, agentsById) { state.reload(); onChanged() }
+                    4 -> AgentRuntime(api, companyId, a.id)
                 }
             }
         }

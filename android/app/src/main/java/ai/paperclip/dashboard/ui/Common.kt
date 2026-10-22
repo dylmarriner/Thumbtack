@@ -140,7 +140,8 @@ fun statusColor(status: String): Color = when (status) {
     else -> Color(0xFF8A8F98)
 }
 
-fun humanize(s: String): String = s.replace('_', ' ').replace('-', ' ').replaceFirstChar { it.uppercase() }
+fun humanize(s: String): String = s.replace(Regex("([a-z0-9])([A-Z])"), "$1 $2").replace('_', ' ').replace('-', ' ')
+    .lowercase().replaceFirstChar { it.uppercase() }
 
 fun money(cents: Long): String = String.format(Locale.US, "$%,.2f", cents / 100.0)
 

@@ -414,4 +414,100 @@ class PaperclipApi(private val store: SessionStore) {
 
     /** Untyped GET for sections whose shapes vary across server versions (artifacts, skills, connectors, ...). */
     suspend fun getJson(path: String): JsonElement = json.parseToJsonElement(raw("GET", path))
+
+    /** Untyped mutation; empty responses decode as JsonNull. */
+    suspend fun sendJson(method: String, path: String, body: JsonElement? = null): JsonElement =
+        raw(method, path, body).let { if (it.isBlank()) kotlinx.serialization.json.JsonNull else json.parseToJsonElement(it) }
+
+    // Skills: company library, built-in catalog, imports (GitHub, URL, skills.sh) and agent assignment.
+
+    suspend fun skills(companyId: String, query: String = ""): JsonElement =
+        getJson("/companies/$companyId/skills?sort=alphabetical" + if (query.isBlank()) "" else "&q=${enc(query)}")
+
+    suspend fun skill(companyId: String, skillId: String): JsonElement = getJson("/companies/$companyId/skills/$skillId")
+
+    suspend fun skillFile(companyId: String, skillId: String, path: String): JsonElement =
+        getJson("/companies/$companyId/skills/$skillId/files?path=${enc(path)}")
+
+    suspend fun skillUpdateStatus(companyId: String, skillId: String): JsonElement =
+        getJson("/companies/$companyId/skills/$skillId/update-status")
+
+    suspend fun installSkillUpdate(companyId: String, skillId: String): JsonElement =
+        sendJson("POST", "/companies/$companyId/skills/$skillId/install-update", JsonObject(emptyMap()))
+
+    suspend fun deleteSkill(companyId: String, skillId: String) { raw("DELETE", "/companies/$companyId/skills/$skillId") }
+
+    suspend fun skillCatalog(query: String = "", kind: String? = null): JsonElement =
+        // The server rejects an empty q (min length 1), so only send filters that are set.
+        getJson("/skills/catalog?" + listOfNotNull(
+            query.trim().takeIf { it.isNotEmpty() }?.let { "q=${enc(it)}" },
+            kind?.let { "kind=$it" },
+        ).joinToString("&"))
+
+    suspend fun catalogSkillFile(catalogId: String, path: String = "SKILL.md"): JsonElement =
+        getJson("/skills/catalog/${enc(catalogId)}/files?path=${enc(path)}")
+
+    suspend fun installCatalogSkill(companyId: String, catalogId: String, force: Boolean = false): JsonElement =
+        sendJson("POST", "/companies/$companyId/skills/install-catalog", buildJsonObject {
+            put("catalogSkillId", catalogId); put("force", force)
+        })
+
+    /** Accepts owner/repo, owner/repo/skill, GitHub or skills.sh URLs, raw HTTPS URLs or `npx skills add ...`. */
+    suspend fun importSkill(companyId: String, source: String): JsonElement =
+        sendJson("POST", "/companies/$companyId/skills/import", buildJsonObject { put("source", source) })
+
+    suspend fun skillSources(companyId: String): JsonElement = getJson("/companies/$companyId/skill-sources")
+
+    suspend fun refreshSkillSource(companyId: String, sourceId: String): JsonElement =
+        sendJson("POST", "/companies/$companyId/skill-sources/$sourceId/refresh", JsonObject(emptyMap()))
+
+    suspend fun deleteSkillSource(companyId: String, sourceId: String, revision: Int, keepCopies: Boolean) {
+        raw("DELETE", "/companies/$companyId/skill-sources/$sourceId", buildJsonObject {
+            put("revision", revision); put("skills", if (keepCopies) "copy" else "delete")
+        })
+    }
+
+    suspend fun agentSkills(agentId: String): JsonElement = getJson("/agents/$agentId/skills")
+
+    suspend fun syncAgentSkills(agentId: String, mode: String, keys: List<String>): JsonElement =
+        sendJson("POST", "/agents/$agentId/skills/sync", buildJsonObject {
+            put("mode", mode)
+            put("desiredSkills", kotlinx.serialization.json.JsonArray(keys.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+        })
+
+    // Plugins: instance-wide; installs come from npm or the bundled examples. Writes need an instance admin.
+
+    suspend fun plugins(): JsonElement = getJson("/plugins")
+
+    suspend fun pluginExamples(): JsonElement = getJson("/plugins/examples")
+
+    suspend fun plugin(id: String): JsonElement = getJson("/plugins/$id")
+
+    suspend fun installPlugin(packageName: String, version: String?, isLocalPath: Boolean): JsonElement =
+        sendJson("POST", "/plugins/install", buildJsonObject {
+            put("packageName", packageName)
+            if (!version.isNullOrBlank()) put("version", version)
+            if (isLocalPath) put("isLocalPath", true)
+        })
+
+    suspend fun setPluginEnabled(id: String, enabled: Boolean) {
+        raw("POST", "/plugins/$id/${if (enabled) "enable" else "disable"}", JsonObject(emptyMap()))
+    }
+
+    suspend fun upgradePlugin(id: String) { raw("POST", "/plugins/$id/upgrade", JsonObject(emptyMap())) }
+
+    suspend fun uninstallPlugin(id: String, purge: Boolean) { raw("DELETE", "/plugins/$id" + if (purge) "?purge=true" else "") }
+
+    suspend fun pluginHealth(id: String): JsonElement = getJson("/plugins/$id/health")
+
+    suspend fun pluginLogs(id: String): JsonElement = getJson("/plugins/$id/logs?limit=100")
+
+    suspend fun pluginConfig(id: String, companyId: String): JsonElement = getJson("/plugins/$id/config?companyId=$companyId")
+
+    suspend fun savePluginConfig(id: String, companyId: String, config: JsonObject, test: Boolean = false): JsonElement =
+        sendJson("POST", "/plugins/$id/config" + if (test) "/test" else "", buildJsonObject {
+            put("companyId", companyId); put("configJson", config)
+        })
+
+    suspend fun secrets(companyId: String): JsonElement = getJson("/companies/$companyId/secrets")
 }
