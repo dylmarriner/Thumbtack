@@ -55,8 +55,9 @@ fun LoginScreen(
     var url by rememberSaveable { mutableStateOf(initialUrl.ifBlank { "http://" }) }
     var mode by rememberSaveable { mutableIntStateOf(0) }
     var email by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
-    var boardKey by rememberSaveable { mutableStateOf("") }
+    // Secrets use plain remember so they never land in the saved-instance Bundle.
+    var password by remember { mutableStateOf("") }
+    var boardKey by remember { mutableStateOf("") }
     var createAccount by rememberSaveable { mutableStateOf(false) }
     var name by rememberSaveable { mutableStateOf("") }
     var claimUrl by rememberSaveable { mutableStateOf("") }

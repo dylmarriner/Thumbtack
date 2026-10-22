@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { EyeOff, LoaderCircle, QrCode, Smartphone, Trash2 } from "lucide-react";
@@ -38,9 +38,13 @@ export function MobileAppPairing() {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [notice, setNotice] = useState<string | null>(null);
+
   const keysQuery = useQuery({
     queryKey: boardApiKeysQueryKey,
     queryFn: () => accessApi.listBoardApiKeys(),
+    // While a code is on screen, poll so the panel notices when the phone connects.
+    refetchInterval: pairing ? 3000 : false,
   });
   const mobileKeys = (keysQuery.data ?? []).filter((key) => key.name.startsWith(MOBILE_KEY_PREFIX));
 
@@ -48,12 +52,13 @@ export function MobileAppPairing() {
     mutationFn: () => {
       const expiresAt = new Date(Date.now() + PAIRING_KEY_LIFETIME_DAYS * 24 * 60 * 60 * 1000).toISOString();
       return accessApi.createBoardApiKey({
-        name: `${MOBILE_KEY_PREFIX} (${new Date().toLocaleDateString()})`,
+        name: `${MOBILE_KEY_PREFIX} (${new Date().toISOString().slice(0, 10)})`,
         expiresAt,
       });
     },
     onSuccess: (created) => {
       setError(null);
+      setNotice(null);
       setPairing(created);
       setServerUrl(created.tailscaleBaseUrl ?? created.publicBaseUrl);
       void queryClient.invalidateQueries({ queryKey: boardApiKeysQueryKey });
@@ -65,11 +70,52 @@ export function MobileAppPairing() {
     mutationFn: (keyId: string) => accessApi.revokeBoardApiKey(keyId),
     onSuccess: (_result, keyId) => {
       setError(null);
-      if (pairing?.id === keyId) setPairing(null);
+      if (pairing?.id === keyId) clearPairing();
       void queryClient.invalidateQueries({ queryKey: boardApiKeysQueryKey });
     },
     onError: (err) => setError(err instanceof Error ? err.message : "Failed to revoke the key."),
   });
+
+  // Drops every copy of the plaintext token: component state and the react-query mutation cache.
+  function clearPairing() {
+    setPairing(null);
+    createMutation.reset();
+  }
+
+  // Hiding the code before any phone used the key revokes it, so no unused key is left behind.
+  function hidePairing() {
+    if (!pairing) return;
+    const used = mobileKeys.find((key) => key.id === pairing.id)?.lastUsedAt;
+    if (used) clearPairing();
+    else revokeMutation.mutate(pairing.id);
+  }
+
+  // Once the phone has used the key, the code is no longer needed on screen.
+  useEffect(() => {
+    if (!pairing) return;
+    if (mobileKeys.some((key) => key.id === pairing.id && key.lastUsedAt)) {
+      clearPairing();
+      setNotice("Phone connected.");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keysQuery.data, pairing]);
+
+  // Leaving the page while an unused code is showing revokes that key.
+  const pendingKeyId = useRef<string | null>(null);
+  pendingKeyId.current = pairing?.id ?? null;
+  useEffect(
+    () => () => {
+      const keyId = pendingKeyId.current;
+      if (!keyId) return;
+      void accessApi
+        .listBoardApiKeys()
+        .then((keys) => {
+          if (!keys.find((key) => key.id === keyId)?.lastUsedAt) return accessApi.revokeBoardApiKey(keyId);
+        })
+        .catch(() => undefined);
+    },
+    [],
+  );
 
   const pairingLink = pairing && serverUrl.trim() ? buildPairingLink(serverUrl, pairing.token) : null;
 
@@ -104,7 +150,16 @@ export function MobileAppPairing() {
         </p>
       </div>
 
-      {error ? <div className="text-sm text-destructive">{error}</div> : null}
+      {error ? (
+        <div role="alert" className="text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
+      {notice ? (
+        <div role="status" className="text-sm text-muted-foreground">
+          {notice}
+        </div>
+      ) : null}
 
       {pairing ? (
         <div className="space-y-4">
@@ -122,7 +177,7 @@ export function MobileAppPairing() {
                 : "No Tailscale address was found on the server. Enter an address the phone can reach."}
             </p>
             {isLoopbackUrl(serverUrl) ? (
-              <p className="text-xs text-destructive">
+              <p role="alert" className="text-xs text-destructive">
                 A localhost address only works on this computer. Use the Tailscale or LAN address instead.
               </p>
             ) : null}
@@ -137,14 +192,14 @@ export function MobileAppPairing() {
               />
             ) : (
               <div className="flex size-64 items-center justify-center rounded-md border border-border">
-                <LoaderCircle className="size-6 animate-spin text-muted-foreground" />
+                <LoaderCircle aria-label="Generating QR code" className="size-6 animate-spin text-muted-foreground" />
               </div>
             )}
             <div className="min-w-0 flex-1 space-y-3 text-sm text-muted-foreground">
               <p>In the app, tap <span className="font-medium text-foreground">Scan QR code</span> on the sign-in screen, or scan with the phone camera.</p>
-              <p>Anyone who sees this code can act as you until the key is revoked. Hide it once the phone is connected.</p>
+              <p>Anyone who sees this code can act as you until the key is revoked. It hides itself once the phone connects; hiding it earlier revokes the unused key.</p>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="secondary" onClick={() => setPairing(null)}>
+                <Button type="button" variant="secondary" onClick={hidePairing} disabled={revokeMutation.isPending}>
                   <EyeOff className="size-4" />
                   Hide code
                 </Button>
@@ -186,7 +241,8 @@ export function MobileAppPairing() {
                   variant="ghost"
                   size="sm"
                   onClick={() => revokeMutation.mutate(key.id)}
-                  disabled={revokeMutation.isPending}
+                  disabled={revokeMutation.isPending && revokeMutation.variables === key.id}
+                  aria-label={`Revoke ${key.name}`}
                 >
                   Revoke
                 </Button>

@@ -63,5 +63,14 @@ class DecodeTest {
         assertEquals(null, parsePairingLink("paperclip://connect?url=javascript%3Aalert(1)&key=k"))
         assertEquals(null, parsePairingLink("https://example.com/connect?url=http%3A%2F%2Fx&key=k"))
         assertEquals(null, parsePairingLink("paperclip://connect?url=http%3A%2F%2Fx"))
+        assertEquals(null, parsePairingLink("paperclip://connect?url=http%3A%2F%2F&key=k"))
+    }
+
+    @Test
+    fun allowsPlainHttpOnlyForPrivateHosts() {
+        listOf("localhost", "127.0.0.1", "10.0.2.2", "192.168.1.5", "172.20.0.1", "100.101.102.103", "box.tail1234.ts.net", "nas.local", "nas", "::1")
+            .forEach { assertEquals(it, true, isPrivateHost(it)) }
+        listOf("example.com", "8.8.8.8", "100.128.0.1", "172.32.0.1", "fdroid.org")
+            .forEach { assertEquals(it, false, isPrivateHost(it)) }
     }
 }

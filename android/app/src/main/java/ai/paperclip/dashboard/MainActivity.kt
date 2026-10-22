@@ -92,6 +92,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -144,6 +145,7 @@ class MainActivity : ComponentActivity() {
                         ) { u, e, p, k, n, c -> vm.signIn(u, e, p, k, n, c) }
                         Phase.Ready -> DashboardApp(vm)
                     }
+                    vm.pendingPairing?.let { (url, _) -> ConfirmPairingDialog(url, vm::confirmPairing, vm::cancelPairing) }
                 }
             }
         }
@@ -158,6 +160,25 @@ class MainActivity : ComponentActivity() {
         val link = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString ?: return
         if (!vm.pair(link)) Toast.makeText(this, "Invalid Paperclip pairing link", Toast.LENGTH_LONG).show()
     }
+}
+
+/** Asks before switching servers, because any app or web page can open a pairing link. */
+@Composable
+private fun ConfirmPairingDialog(url: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    val insecure = url.startsWith("http://")
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Connect to this server?") },
+        text = {
+            Text(
+                "The app will sign in to $url with full board access." +
+                    (if (insecure) " The connection is not encrypted, so use it only on a trusted network or tailnet." else "") +
+                    " Only continue if you created this pairing code yourself.",
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Connect") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** A top-level destination reachable from the side menu (and, for some, the bottom bar). */

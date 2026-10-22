@@ -3,8 +3,12 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Cleartext allowed: self-hosted Paperclip often runs on plain HTTP over LAN/Tailscale. -->
+    <!-- Cleartext allowed: self-hosted Paperclip often runs on plain HTTP over LAN/Tailscale.
+         AppViewModel.signIn refuses plain http to public hosts (isPrivateHost), since
+         network-security-config cannot express IP ranges such as 100.64.0.0/10.
+         Backups are off so the session never leaves the device. -->
     <application
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="Paperclip"
         android:usesCleartextTraffic="true"
